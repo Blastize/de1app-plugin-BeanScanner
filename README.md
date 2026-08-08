@@ -162,9 +162,9 @@ DE1PRO, app v1.46.1.1, DSx2 skin v3.30, Samsung Galaxy Tab A9 (SM-X110),
 Versions up to v0.2.0 are verified on that hardware end to end: capture, API
 call, review and Accept. v0.4.1 is confirmed on the tablet to load cleanly
 and render its pages, including adopting the active skin's palette (that's
-the screenshot above). The v0.3.0 deep-link navigation paths are verified
-under `tclsh` with the framework stubbed, but have not yet been exercised on
-a tablet — see [CHANGELOG.md](CHANGELOG.md).
+the screenshot above) and the v0.3.0 deep link — the Lumen skin's "Scan bag"
+button opens the camera directly and Cancel returns to the skin's home page
+in one tap. See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

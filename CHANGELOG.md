@@ -26,6 +26,14 @@ line. This run also confirms **v0.4.0's palette adoption on real hardware** —
 the pages pick up the active skin's dark/amber colours rather than the stock
 light grey, which v0.4.0's own entry still listed as untested.
 
+**v0.3.0's deep link is confirmed on the tablet too**, via the Lumen skin's
+"Scan bag" button (`::lumen::act::scan_bag`, which calls
+`set_return_page "off"` then opens `BeanScanner_capture`): the capture page
+opens directly with the camera live, and Cancel returns to the Lumen home
+page in one tap rather than by way of the plugin's settings page. The camera
+is released on the way out. Both 0.3.0 and 0.4.0 had been `tclsh`-only until
+this run.
+
 ## v0.4.0 - adopts the active skin's palette
 
 The plugin no longer looks like a stock settings page pasted into a themed

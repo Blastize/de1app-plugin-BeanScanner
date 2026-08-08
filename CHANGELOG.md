@@ -34,6 +34,18 @@ page in one tap rather than by way of the plugin's settings page. The camera
 is released on the way out. Both 0.3.0 and 0.4.0 had been `tclsh`-only until
 this run.
 
+All three navigation routes were exercised on the tablet, and the
+`_entered_at_subpage` flag does not leak between them:
+
+| Entered via | Action | Lands on |
+|---|---|---|
+| Lumen "Scan bag" (deep link) | Cancel | Lumen home page |
+| Settings page → Scan Bean Bag | Cancel | the plugin's settings page |
+| Settings page | Done | Extensions dialog |
+
+The deep-link run happened first, so the settings-page run also confirms the
+flag was cleared behind it.
+
 ## v0.4.0 - adopts the active skin's palette
 
 The plugin no longer looks like a stock settings page pasted into a themed

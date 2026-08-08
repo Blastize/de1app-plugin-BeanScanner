@@ -1,0 +1,6 @@
+plugin.tcl
+BeanScanner.tcl
+filelist.txt
+README.md
+CHANGELOG.md
+PROJECT_STATE.md

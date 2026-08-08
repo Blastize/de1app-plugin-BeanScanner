@@ -1,0 +1,15 @@
+# API keys -- never commit these
+api_key_*.txt
+
+# Runtime state written by the app. settings.tdb can contain the API key
+# if it was typed into the plugin's settings page rather than a key file.
+*.tdb
+
+# Plugin-local working folders
+backup/
+trash/
+log/
+
+# OS cruft
+.DS_Store
+Thumbs.db

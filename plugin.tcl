@@ -43,7 +43,7 @@ set plugin_name "BeanScanner"
 namespace eval ::plugins::BeanScanner {
     variable author      "Blastize"
     variable contact     "https://github.com/Blastize/BeanScanner"
-    variable version     "0.4.0"
+    variable version     "0.4.1"
     variable name        "Bean Scanner"
     variable description "Photograph a bean bag, an AI vision model reads it, and the details go into DYE's next shot after you confirm. Requires DYE and an API key."
 

@@ -202,7 +202,13 @@ namespace eval ::plugins::BeanScanner {
         set L(sec_pad) $L(lg)
         set L(sec_gap) $L(lg)
         set L(sec_title_h) [expr {int(round(24 * $scale))}]
-        set L(sec_label_w) [expr {int(round(220 * $scale))}]
+        # 180, not 220: the label column is subtracted from the value column,
+        # and at 220 the value column came to only ~121 physical px -- one
+        # pixel-width short of the longest value the UI can produce
+        # ("2048x1536" at font_primary), which wrapped onto a second line and
+        # collided with the row below. The longest label ("Overwrite
+        # existing") still fits comfortably in 180.
+        set L(sec_label_w) [expr {int(round(180 * $scale))}]
         set L(sec_value_dx) [expr {$L(sec_pad) + $L(sec_label_w) + $L(lg)}]
         set L(sec_btn_w) [expr {int(round(150 * $scale))}]
         # Colour tokens. Two surfaces exist: the page background and the

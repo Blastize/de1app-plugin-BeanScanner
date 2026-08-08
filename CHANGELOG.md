@@ -1,5 +1,31 @@
 # Bean Scanner — Changelog
 
+## v0.4.1 — the longest capture size no longer wraps
+
+**Safety status: no change.** The only write remains the DYE next-shot
+update after you press Accept. No database, no history files.
+
+### Fixed
+
+* **"Capture size" wrapped to a second line at `2048x1536`**, colliding with
+  the row beneath it. Not a near-miss: the value column is what's left after
+  the label column and the button are subtracted, and at `sec_label_w` 220 it
+  came to 232 virtual units — about 121 physical px — while the longest value
+  the UI can produce needs ~120 px at `font_primary`. It was always going to
+  wrap at the largest capture size.
+
+  `sec_label_w` is now 180, giving the value column 312 virtual units
+  (~163 px). The longest label, "Overwrite existing", still fits comfortably.
+
+Found by screenshotting the running settings page for the repo README.
+
+### Verified on the tablet
+
+v0.4.1 loads clean and the settings page renders with `2048x1536` on one
+line. This run also confirms **v0.4.0's palette adoption on real hardware** —
+the pages pick up the active skin's dark/amber colours rather than the stock
+light grey, which v0.4.0's own entry still listed as untested.
+
 ## v0.4.0 - adopts the active skin's palette
 
 The plugin no longer looks like a stock settings page pasted into a themed

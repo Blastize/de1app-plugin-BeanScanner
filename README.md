@@ -6,6 +6,10 @@ the label, and — after you confirm what it read — the roaster, bean, roast
 date, roast level and notes go into DYE's next shot. No more typing bag
 details on a tablet keyboard.
 
+![Bean Scanner settings page](docs/settings-page.png)
+
+*The settings page, adopting the active skin's palette.*
+
 ## How it works
 
 1. **Scan Bean Bag** — the camera preview opens. Hold the printed side of the
@@ -155,9 +159,12 @@ Only DYE's next-shot definition, through DYE's own
 DE1PRO, app v1.46.1.1, DSx2 skin v3.30, Samsung Galaxy Tab A9 (SM-X110),
 1340x800.
 
-Versions up to v0.2.0 are verified on that hardware end to end. v0.3.0 and
-v0.4.0 are verified under `tclsh` with the framework stubbed, but have not
-yet been exercised on a tablet — see [CHANGELOG.md](CHANGELOG.md).
+Versions up to v0.2.0 are verified on that hardware end to end: capture, API
+call, review and Accept. v0.4.1 is confirmed on the tablet to load cleanly
+and render its pages, including adopting the active skin's palette (that's
+the screenshot above). The v0.3.0 deep-link navigation paths are verified
+under `tclsh` with the framework stubbed, but have not yet been exercised on
+a tablet — see [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -70,7 +70,7 @@ Clone into the app's plugin folder on the tablet:
 
 ```bash
 cd /sdcard/de1plus/plugins
-git clone https://github.com/Blastize/BeanScanner.git BeanScanner
+git clone https://github.com/Blastize/de1app-plugin-BeanScanner.git BeanScanner
 ```
 
 Or download the ZIP and extract it so the files land in

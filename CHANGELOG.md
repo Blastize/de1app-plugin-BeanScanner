@@ -1,5 +1,18 @@
 # Bean Scanner — Changelog
 
+## v0.4.2 — repository renamed
+
+**Safety status: no change.** No code behavior changed in this version. The
+only write remains the DYE next-shot update after you press Accept. No
+database, no history files.
+
+### Changed
+
+* The GitHub repository was renamed from `Blastize/BeanScanner` to
+  `Blastize/de1app-plugin-BeanScanner`. The clone URL in the README and the
+  `contact` URL in `plugin.tcl` now point at the new name. GitHub redirects
+  the old URLs, so existing clones and links keep working.
+
 ## v0.4.1 — the longest capture size no longer wraps
 
 **Safety status: no change.** The only write remains the DYE next-shot

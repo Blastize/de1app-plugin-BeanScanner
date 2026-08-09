@@ -13,3 +13,6 @@ log/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Internal working notes - kept local, not published.
+PROJECT_STATE.md

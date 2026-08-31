@@ -10,6 +10,12 @@ details on a tablet keyboard.
 
 *The settings page, adopting the active skin's palette.*
 
+Since v0.5.0 a sun/moon button in the settings page's top-right corner
+switches the plugin between a light and a dark palette instantly (the
+choice persists). Until you first tap it, the plugin keeps its classic
+behavior: the stock light look, adopting the active skin's palette when
+the skin publishes one.
+
 ## How it works
 
 1. **Scan Bean Bag** — the camera preview opens. Hold the printed side of the

@@ -43,7 +43,7 @@ set plugin_name "BeanScanner"
 namespace eval ::plugins::BeanScanner {
     variable author      "Blastize"
     variable contact     "https://github.com/Blastize/de1app-plugin-BeanScanner"
-    variable version     "0.4.2"
+    variable version     "0.5.0"
     variable name        "Bean Scanner"
     variable description "Photograph a bean bag, an AI vision model reads it, and the details go into DYE's next shot after you confirm. Requires DYE and an API key."
 
@@ -75,6 +75,7 @@ namespace eval ::plugins::BeanScanner {
         apply_roast_level   1
         apply_bean_notes    1
         overwrite_existing  1
+        theme               {}
     } {
         if {![info exists settings($__k)]} { set settings($__k) $__v }
     }

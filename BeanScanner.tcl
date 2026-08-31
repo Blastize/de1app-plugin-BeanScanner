@@ -84,6 +84,11 @@ namespace eval ::plugins::BeanScanner {
                 }
             }
         }
+        # v0.5.0: UI theme. "" (follow the skin) is a legitimate value,
+        # so it lives outside the empty-resets loop above.
+        if {![info exists settings(theme)] || $settings(theme) ni {{} light dark}} {
+            set settings(theme) {}
+        }
     }
 
     proc _setting {key default} {
@@ -155,6 +160,168 @@ namespace eval ::plugins::BeanScanner {
     #  pixel size, not at a rescaled canvas size.
     # ==================================================================
 
+    # ------------------------------------------------------------------
+    #  Theme palette (v0.5.0). Three modes via settings(theme):
+    #  "" (default) = the pre-v0.5.0 behavior -- stock light look, with
+    #  the active skin's palette adopted when it publishes one;
+    #  "light" / "dark" = the explicit palettes, overriding adoption.
+    #  The sun-moon toggle on the settings page flips light<->dark based
+    #  on the EFFECTIVE darkness (page_bg luminance), so it also works
+    #  when the starting point is an adopted skin palette.
+    # ------------------------------------------------------------------
+
+    proc _apply_palette {} {
+        variable L
+        variable settings
+        set theme ""
+        catch { set theme $settings(theme) }
+        # DEFAULTS: the stock light settings-page look, used on every skin.
+        set L(sec_fill) "#FFFFFF"
+        set L(sec_outline) "#dcdcdc"
+        set L(page_bg)  "#d5d6e3"   ;# matches the stock settings-page grey
+        set L(fg_title) "#2b2b2b"
+        set L(fg_body)  "#2b2b2b"
+        set L(fg_muted) "#666666"
+        set L(fg_warn)  "#a33a00"   ;# "will be cleared" on the review page
+        set L(on_card_title) "#2b2b2b"   ;# on a white section card
+        set L(on_card_label) "#444444"
+        set L(on_card_value) "#4e85f4"
+        set L(entry_bg) "#fbfaff"
+        set L(btn_fill) "#c0c5e3"        ;# matches the stock dbutton default
+        set L(btn_disabled_fill) "#dddddd"
+        set L(btn_label_fill) "#2b2b2b"
+        if {$theme eq "dark"} {
+            set L(sec_fill) "#32353f"
+            set L(sec_outline) "#464b58"
+            set L(page_bg)  "#23252e"
+            set L(fg_title) "#e8e9ee"
+            set L(fg_body)  "#d0d3db"
+            set L(fg_muted) "#8d92a0"
+            set L(fg_warn)  "#ff9e6b"
+            set L(on_card_title) "#e8e9ee"
+            set L(on_card_label) "#c2c5cf"
+            set L(on_card_value) "#8ab4ff"
+            set L(entry_bg) "#3a3e4a"
+            set L(btn_fill) "#4a5473"
+            set L(btn_disabled_fill) "#3a3e4a"
+            set L(btn_label_fill) "#e8e9ee"
+        } elseif {$theme ne "light"} {
+            # No explicit choice yet: follow the active skin's palette
+            # when it publishes one (the pre-v0.5.0 behavior).
+            _adopt_skin_palette
+        }
+    }
+
+    # Perceived luminance below mid-grey = dark. Guards return 0 (light)
+    # on anything that is not a plain #rrggbb.
+    proc _is_dark_color {c} {
+        if {![regexp {^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$} $c -> r g b]} {
+            return 0
+        }
+        scan $r %x r
+        scan $g %x g
+        scan $b %x b
+        return [expr {(0.299 * $r + 0.587 * $g + 0.114 * $b) < 128}]
+    }
+
+    proc _effective_dark {} {
+        variable L
+        if {![info exists L(page_bg)]} { return 0 }
+        return [_is_dark_color $L(page_bg)]
+    }
+
+    proc _glyph_for {name} {
+        set glyph ""
+        catch {
+            if {[dui symbol exists $name]} { set glyph [dui symbol get $name] }
+        }
+        return $glyph
+    }
+
+    # Moon when the effective look is light (tap for dark), sun-bright
+    # when dark; text fallback when the icon font is unavailable.
+    proc _theme_button_face {} {
+        variable L
+        set dark [_effective_dark]
+        if {[info exists L(have_icons)] && $L(have_icons)} {
+            set g [_glyph_for [expr {$dark ? "sun-bright" : "moon"}]]
+            if {$g ne ""} { return $g }
+        }
+        return [expr {$dark ? [translate "Light"] : [translate "Dark"]}]
+    }
+
+    proc toggle_theme {} {
+        variable settings
+        set settings(theme) [expr {[_effective_dark] ? "light" : "dark"}]
+        save_settings
+        _apply_palette
+        _retheme_all
+        catch { ::dui::pages::BeanScanner_settings::refresh BeanScanner_settings }
+        catch { dui item config BeanScanner_settings btn_theme -label [_theme_button_face] }
+        catch { msg "BeanScanner: theme switched to $settings(theme)" }
+    }
+
+    # Repaint every palette-coloured item by bare tag; every call is
+    # guarded so a missing item can never break the walk. Buttons are
+    # restyled through their -btn shape tags (every segment of a round
+    # dbutton carries the tag with -fill AND -outline) and their -lbl
+    # label tags (this plugin's button labels are dark-on-light, so
+    # they must follow the theme too).
+    proc _retheme_all {} {
+        variable L
+        foreach p {BeanScanner_settings BeanScanner_apikey BeanScanner_capture
+                   BeanScanner_review BeanScanner_diagnostics BeanScanner_help} {
+            catch { dui item config $p page_bg -fill $L(page_bg) -outline $L(page_bg) }
+            catch { dui item config $p page_title -fill $L(fg_title) }
+            catch { dui item config $p subtitle -fill $L(fg_muted) }
+        }
+        # Settings page: section cards + label/value rows.
+        foreach sec {sec_scan sec_apply sec_ai sec_cam} {
+            catch { dui item config BeanScanner_settings ${sec}_bg \
+                -fill $L(sec_fill) -outline $L(sec_outline) }
+            catch { dui item config BeanScanner_settings ${sec}_title -fill $L(on_card_title) }
+        }
+        foreach k {notes overwrite provider model apikey camera capsize} {
+            catch { dui item config BeanScanner_settings ${k}_label -fill $L(on_card_label) }
+            catch { dui item config BeanScanner_settings ${k}_value -fill $L(on_card_value) }
+        }
+        # API key page.
+        catch { dui item config BeanScanner_apikey provider_label -fill $L(fg_body) }
+        catch { dui item config BeanScanner_apikey key_help -fill $L(fg_muted) }
+        catch { dui item config BeanScanner_apikey key_entry \
+            -bg $L(entry_bg) -foreground $L(on_card_value) }
+        # Capture / review / diagnostics / help texts.
+        catch { dui item config BeanScanner_capture scan_status -fill $L(fg_body) }
+        foreach t {roaster_value_label bean_value_label date_value_label level_value_label notes_label} {
+            catch { dui item config BeanScanner_review $t -fill $L(fg_muted) }
+        }
+        foreach t {roaster_value bean_value date_value level_value} {
+            catch { dui item config BeanScanner_review $t -fill $L(fg_title) }
+        }
+        catch { dui item config BeanScanner_review notes_value -fill $L(fg_body) }
+        catch { dui item config BeanScanner_diagnostics diag_text -fill $L(fg_body) }
+        catch { dui item config BeanScanner_help help_text -fill $L(fg_body) }
+        # Buttons: shape + label, both theme-dependent here.
+        foreach {p tags} {
+            BeanScanner_settings {scan_bean_bag use_latest_photo last_result
+                                  notes_btn overwrite_btn provider_btn apikey_btn
+                                  camera_btn capsize_btn page_done page_diag
+                                  page_help btn_theme}
+            BeanScanner_apikey {page_done page_clear}
+            BeanScanner_capture {capture_btn page_done}
+            BeanScanner_review {accept_btn rescan_btn page_done}
+            BeanScanner_diagnostics {page_done probe_btn}
+            BeanScanner_help {page_done}
+        } {
+            foreach t $tags {
+                catch { dui item config $p ${t}-btn \
+                    -fill $L(btn_fill) -outline $L(btn_fill) \
+                    -disabledfill $L(btn_disabled_fill) -disabledoutline $L(btn_disabled_fill) }
+                catch { dui item config $p ${t}-lbl -fill $L(btn_label_fill) }
+            }
+        }
+    }
+
     proc _init_layout {} {
         variable L
         array unset L
@@ -218,22 +385,9 @@ namespace eval ::plugins::BeanScanner {
         # rather than inheriting the active skin theme's, so the contrast is
         # deterministic on any skin.
         #
-        # DEFAULTS: the stock light settings-page look, used on every skin.
-        set L(sec_fill) "#FFFFFF"
-        set L(sec_outline) "#dcdcdc"
-        set L(page_bg)  "#d5d6e3"   ;# matches the stock settings-page grey
-        set L(fg_title) "#2b2b2b"
-        set L(fg_body)  "#2b2b2b"
-        set L(fg_muted) "#666666"
-        set L(fg_warn)  "#a33a00"   ;# "will be cleared" on the review page
-        set L(on_card_title) "#2b2b2b"   ;# on a white section card
-        set L(on_card_label) "#444444"
-        set L(on_card_value) "#4e85f4"
-        set L(btn_fill) "#c0c5e3"        ;# matches the stock dbutton default
-        set L(btn_disabled_fill) "#dddddd"
-        set L(btn_label_fill) "#2b2b2b"
-
-        _adopt_skin_palette
+        # v0.5.0: every colour lives in _apply_palette (light / dark /
+        # follow-the-skin), so the sun-moon toggle can swap it at runtime.
+        _apply_palette
 
         set L(btn_w_std) [expr {int(round(200 * $scale))}]
         set L(btn_w_wide) [expr {int(round(260 * $scale))}]
@@ -269,6 +423,25 @@ namespace eval ::plugins::BeanScanner {
                     font create $fname -family Helvetica -size [expr {-$px}] -weight $weight
                 }
                 set L(font_$name) $fname
+            }
+        }
+
+        # v0.5.0: icon font for the theme toggle's sun/moon face (the
+        # app's own FA6 Pro file, dui's loader). Text fallback when
+        # unavailable -- have_icons stays 0.
+        set L(have_icons) 0
+        set L(font_icon) $L(font_button)
+        catch {
+            set fam [dui::font::add_or_get_familyname "Font Awesome 6 Pro-Regular-400.otf"]
+            if {$fam ne ""} {
+                set px [expr {int(max(16, round(26 * $font_scale)))}]
+                if {[lsearch -exact [font names] BSC_icon] >= 0} {
+                    font configure BSC_icon -family $fam -size [expr {-$px}]
+                } else {
+                    font create BSC_icon -family $fam -size [expr {-$px}]
+                }
+                set L(font_icon) BSC_icon
+                set L(have_icons) 1
             }
         }
 
@@ -1125,6 +1298,16 @@ namespace eval ::dui::pages::BeanScanner_settings {
             -font $L(font_caption) -width $L(content_w) -fill $L(fg_muted) \
             -anchor center -justify center
 
+        # v0.5.0: theme toggle, top-right corner (the design system's
+        # mode-button slot; same placement as MaintenanceTracker's).
+        set th_y1 [expr {int(round(11 * $L(scale)))}]
+        dui add dbutton $page [expr {$rx - $L(btn_h)}] $th_y1 \
+            $rx [expr {$th_y1 + $L(btn_h)}] \
+            -tags btn_theme -label [::plugins::BeanScanner::_theme_button_face] \
+            -command ::plugins::BeanScanner::toggle_theme \
+            -label_font [expr {$L(have_icons) ? $L(font_icon) : $L(font_button)}] \
+            -style bsc_btn
+
         set col_w $L(sec_col_w)
         set c2x $L(sec_col2_x)
         set scan_h  [expr {2 * $L(sec_pad) + $L(sec_title_h) + $L(md) + 3 * $L(btn_h) + 2 * $L(md)}]
@@ -1244,6 +1427,9 @@ namespace eval ::dui::pages::BeanScanner_settings {
             [::plugins::BeanScanner::_setting capture_size 1280x960] }
         catch { dui item config $page notes_value -text [_onoff apply_bean_notes] }
         catch { dui item config $page overwrite_value -text [_onoff overwrite_existing] }
+        # v0.5.0: theme button face follows the effective theme.
+        catch { dui item config $page btn_theme \
+            -label [::plugins::BeanScanner::_theme_button_face] }
     }
 
     proc _onoff {key} {
@@ -1334,7 +1520,7 @@ namespace eval ::dui::pages::BeanScanner_apikey {
         dui add entry $page $lx $y -tags key_entry \
             -textvariable ::dui::pages::BeanScanner_apikey::key_text \
             -width 46 -font $L(font_body) -canvas_anchor w \
-            -borderwidth 1 -bg "#fbfaff" -foreground "#4e85f4" -relief flat
+            -borderwidth 1 -bg $L(entry_bg) -foreground $L(on_card_value) -relief flat
 
         set y [expr {$y + $L(row_pitch)}]
         dui add dtext $page $lx $y -tags key_help \

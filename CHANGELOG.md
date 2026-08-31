@@ -1,5 +1,31 @@
 # Bean Scanner — Changelog
 
+## v0.5.0 — dark mode
+
+**Safety status: no change to data behavior.** The only data write remains
+the DYE next-shot update after you press Accept. The one new settings key
+is `theme`, saved when you tap the new toggle.
+
+### Added
+
+* A sun/moon button in the settings page's top-right corner switches the
+  whole plugin between a light and a dark palette instantly — all six
+  pages repaint on the spot, and the choice persists across restarts.
+* Three theme modes: the default (empty `theme`) keeps the pre-v0.5.0
+  behavior — the stock light look, adopting the active skin's palette
+  when it publishes one (Lumen). Tapping the toggle switches to an
+  explicit `light` or `dark`, which overrides skin adoption; the
+  toggle's direction is decided from the *effective* look (background
+  luminance), so it does the right thing even when the starting point
+  is an adopted dark skin palette.
+
+### Changed
+
+* Every colour token now lives in one `_apply_palette` proc (the
+  offline harness enforces that no palette literal appears anywhere
+  else). Buttons — faces and their dark-on-light labels — follow the
+  theme, restyled live through their shape/label canvas tags.
+
 ## v0.4.2 — repository renamed
 
 **Safety status: no change.** No code behavior changed in this version. The

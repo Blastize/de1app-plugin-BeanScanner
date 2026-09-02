@@ -43,7 +43,7 @@ set plugin_name "BeanScanner"
 namespace eval ::plugins::BeanScanner {
     variable author      "Blastize"
     variable contact     "https://github.com/Blastize/de1app-plugin-BeanScanner"
-    variable version     "0.5.0"
+    variable version     "0.9.13"
     variable name        "Bean Scanner"
     variable description "Photograph a bean bag, an AI vision model reads it, and the details go into DYE's next shot after you confirm. Requires DYE and an API key."
 
@@ -62,12 +62,15 @@ namespace eval ::plugins::BeanScanner {
 
         camera_pref         front
         preview_size        640x480
-        capture_size        1280x960
+        capture_size        1600x1200
         capture_retries     24
         capture_poll_ms     250
         preview_poll_ms     150
         max_image_bytes     4000000
         import_dir          /sdcard/DCIM/Camera
+        flash_mode          off
+        max_photos          6
+        screen_flash_ms     600
 
         apply_bean_brand    1
         apply_bean_type     1
@@ -89,7 +92,14 @@ namespace eval ::plugins::BeanScanner {
     array set cam {
         open 0  started 0  preview 0  after {}  photo {}  index -1
         probe {}  last_bytes 0
+        flash_hw {}  flash_modes {}  screenflash 0  saved_brightness {}
+        flash_after {}  zoom {1 1}  photo_disp {}
     }
+
+    # Captured-but-not-yet-sent JPEGs for the current scan (binary data,
+    # runtime only, never persisted). One bag can need several photos:
+    # front, back, side panels with the roast date, etc.
+    variable photos [list]
 
     variable scan                    ;# current scan state
     array set scan {

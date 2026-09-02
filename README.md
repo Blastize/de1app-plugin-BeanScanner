@@ -18,12 +18,28 @@ the skin publishes one.
 
 ## How it works
 
-1. **Scan Bean Bag** — the camera preview opens. Hold the printed side of the
-   bag up to the camera so it fills the frame, then tap **Capture**.
-2. The photo goes to Claude or GPT, which is told to read only what is
-   actually printed and never to guess.
+1. **Scan Bean Bag** — the screen becomes a full-screen camera. Tap the
+   white **shutter circle** to take a picture; repeat for every side of the
+   bag that has printing on it — the roast date is often on the back — then
+   tap **Send** (up to 6 photos per scan; the trash circle starts the set
+   over, the ✕ cancels).
+2. All the photos go to Claude or GPT in one request; the model is told they
+   show the same bag, to combine what is printed across them, and never to
+   guess.
 3. A **review page** shows what came back. **Accept** writes it into DYE's
-   next shot; **Rescan** takes another photo; **Cancel** throws it away.
+   next shot; **Rescan** takes new photos; **Cancel** throws it away.
+
+Scanning in dim light? The **lightning icon** (top right) is the flash:
+white slashed bolt = off, yellow bolt = on, yellow bolt-A = auto (back
+camera only). On the back camera the real flash runs as a steady light so
+the preview shows exactly what will be captured; the front camera — which
+has no flash — turns the whole screen white at maximum brightness for the
+moment of capture, then restores both. The screen never flashes for the
+back camera, and a camera with no flash at all shows the icon dimmed.
+
+The **two-arrow loop icon** right of the shutter flips between the front
+and back camera without leaving the page. Photos already taken are kept,
+and the flash adapts to whatever the new camera supports.
 
 Nothing is written anywhere until you press Accept.
 
@@ -36,8 +52,9 @@ and spends your money:
    whichever provider you select. That includes whatever else is in frame.
    The camera on a mounted tablet often catches you and the room behind you,
    so point it at the bag and check the preview before capturing.
-2. **You pay for each scan** on your own API key. It's one small image plus a
-   short reply — a fraction of a cent per scan — but it is billed to you.
+2. **You pay for each scan** on your own API key. A scan is a few small
+   images plus a short reply — still a fraction of a cent — but each photo
+   you add makes the request a little larger, and it is billed to you.
 3. **The API key is stored in plaintext on the tablet**, either in a text file
    in this folder or in the plugin's settings file. A DE1 tablet is usually a
    shared kitchen or café appliance. Treat the key accordingly, and use a key
@@ -95,6 +112,7 @@ Settings → App → Extensions.
 | API key | Opens the key entry page for the selected provider. |
 | Camera | Front / Back / Auto. Front is the default (the tablet faces you). |
 | Capture size | 640x480 up to 2048x1536. Bigger reads small print better but uploads slower. |
+| Flash (capture page) | Cycles off / on / auto and persists. Back camera: real flash (steady torch for "on", the camera's auto mode for "auto"). Front camera: the screen flashes white at maximum brightness while the picture is taken (no auto). The screen never flashes for the back camera. |
 | Include bag notes | Whether origin / process / varietal / tasting notes are written to `bean_notes`. |
 | Overwrite existing | **On (default):** the scan replaces the whole bean identity — fields the bag doesn't state are **cleared**. **Off:** only currently-empty fields are filled in, and nothing is ever cleared. |
 
@@ -110,6 +128,16 @@ included. The review page marks each field that is about to be cleared, and
 nothing is written at all if the scan recognized nothing — a failed read
 can't wipe your next shot. If you'd rather keep what's there and only fill
 gaps, turn "Overwrite existing" off.
+
+## Known camera quirk
+
+Pointing either camera straight at a bright LED or lamp in a dark room can
+make the live preview stutter about once a second. This was chased to the
+ground (see the CHANGELOG's v0.9.x saga): it happens on a completely clean
+camera configuration, on both cameras, and no Camera1 parameter prevents
+it — it is the tablet camera firmware's own behavior when a glowing light
+source dominates the frame. Captured photos are unaffected, and scanning a
+bag in normal light never triggers it.
 
 ## If the camera won't start
 
@@ -157,20 +185,21 @@ Only DYE's next-shot definition, through DYE's own
   you type the same values into DYE by hand.
 * The camera is released whenever the capture page goes away, including when
   a flush, rinse or steam screen interrupts it.
-* The photo is sent only to the provider you selected, and only when you
-  press Capture (or Use Latest Photo). The plugin does not store it.
+* The photos are sent only to the provider you selected, and only when you
+  press Send (or Use Latest Photo). The plugin holds them in memory just
+  until the scan succeeds and never writes them to disk.
 
 ## Tested on
 
-DE1PRO, app v1.46.1.1, DSx2 skin v3.30, Samsung Galaxy Tab A9 (SM-X110),
-1340x800.
+DE1PRO, app v1.46.1.1, DSx2 skin v3.30 / Lumen skin, Samsung Galaxy Tab A9
+(SM-X110), 1340x800.
 
-Versions up to v0.2.0 are verified on that hardware end to end: capture, API
-call, review and Accept. v0.4.1 is confirmed on the tablet to load cleanly
-and render its pages, including adopting the active skin's palette (that's
-the screenshot above) and the v0.3.0 deep link — the Lumen skin's "Scan bag"
-button opens the camera directly and Cancel returns to the skin's home page
-in one tap. See [CHANGELOG.md](CHANGELOG.md).
+v0.9.13 is verified on that hardware end to end: a real bag scanned with
+multiple photos through the full-screen camera UI, sent, reviewed, and
+accepted into DYE. Earlier milestones (capture pipeline, both providers,
+palette adoption, the v0.3.0 deep link from the Lumen skin's "Scan bag"
+button) were each tablet-verified in their day — see
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

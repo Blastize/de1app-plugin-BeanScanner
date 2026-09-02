@@ -62,12 +62,14 @@ namespace eval ::plugins::BeanScanner {
             request_timeout_ms  90000
             camera_pref         front
             preview_size        640x480
-            capture_size        1280x960
+            capture_size        1600x1200
             capture_retries     24
             capture_poll_ms     250
             preview_poll_ms     150
             max_image_bytes     4000000
             import_dir          /sdcard/DCIM/Camera
+            max_photos          6
+            screen_flash_ms     600
             apply_bean_brand    1
             apply_bean_type     1
             apply_roast_date    1
@@ -88,6 +90,22 @@ namespace eval ::plugins::BeanScanner {
         # so it lives outside the empty-resets loop above.
         if {![info exists settings(theme)] || $settings(theme) ni {{} light dark}} {
             set settings(theme) {}
+        }
+        # v0.8.0: flash_mode (off/on/auto) replaces the v0.6-0.7 boolean
+        # flash_enabled; an enabled flash migrates to "on".
+        if {![info exists settings(flash_mode)] || $settings(flash_mode) ni {off on auto}} {
+            set settings(flash_mode) off
+            if {[info exists settings(flash_enabled)] \
+                    && [string is true -strict $settings(flash_enabled)]} {
+                set settings(flash_mode) on
+            }
+        }
+        unset -nocomplain settings(flash_enabled)
+        # v0.8.3: the shipped capture_size default rose to 1600x1200 for
+        # label detail; an install still sitting on the old 1280x960
+        # default is lifted once. Any other explicit choice is kept.
+        if {$settings(capture_size) eq "1280x960"} {
+            set settings(capture_size) 1600x1200
         }
     }
 
@@ -269,7 +287,9 @@ namespace eval ::plugins::BeanScanner {
     # they must follow the theme too).
     proc _retheme_all {} {
         variable L
-        foreach p {BeanScanner_settings BeanScanner_apikey BeanScanner_capture
+        # BeanScanner_capture is absent on purpose (v0.8.0): it is a
+        # camera screen with fixed dark chrome in both themes.
+        foreach p {BeanScanner_settings BeanScanner_apikey
                    BeanScanner_review BeanScanner_diagnostics BeanScanner_help} {
             catch { dui item config $p page_bg -fill $L(page_bg) -outline $L(page_bg) }
             catch { dui item config $p page_title -fill $L(fg_title) }
@@ -290,8 +310,7 @@ namespace eval ::plugins::BeanScanner {
         catch { dui item config BeanScanner_apikey key_help -fill $L(fg_muted) }
         catch { dui item config BeanScanner_apikey key_entry \
             -bg $L(entry_bg) -foreground $L(on_card_value) }
-        # Capture / review / diagnostics / help texts.
-        catch { dui item config BeanScanner_capture scan_status -fill $L(fg_body) }
+        # Review / diagnostics / help texts.
         foreach t {roaster_value_label bean_value_label date_value_label level_value_label notes_label} {
             catch { dui item config BeanScanner_review $t -fill $L(fg_muted) }
         }
@@ -308,7 +327,6 @@ namespace eval ::plugins::BeanScanner {
                                   camera_btn capsize_btn page_done page_diag
                                   page_help btn_theme}
             BeanScanner_apikey {page_done page_clear}
-            BeanScanner_capture {capture_btn page_done}
             BeanScanner_review {accept_btn rescan_btn page_done}
             BeanScanner_diagnostics {page_done probe_btn}
             BeanScanner_help {page_done}
@@ -395,6 +413,28 @@ namespace eval ::plugins::BeanScanner {
         set L(btn_radius) [expr {int(round(12 * $scale))}]
         set L(sec_radius) $L(btn_radius)
 
+        # v0.8.0: camera-app chrome for the capture page. Deliberately
+        # fixed (NOT part of _apply_palette): a camera screen is dark in
+        # both themes, so the capture page is excluded from _retheme_all.
+        # Tk has no alpha, so the "translucent" circles are solid dark.
+        set L(cam_bg)        "#000000"
+        set L(cam_circle)    "#26262b"   ;# floating control circles / pills
+        set L(cam_icon)      "#ffffff"
+        set L(cam_icon_dim)  "#6f7278"   ;# flash glyph when no flash exists
+        set L(cam_flash_on)  "#ffd60a"   ;# yellow bolt (on / auto)
+        set L(cam_send_fill) "#f2f2f4"
+        set L(cam_send_text) "#17181c"
+        set L(cam_margin)    60          ;# edge inset for floating controls
+        set L(cam_circle_d)  128         ;# small circles (cancel/flash/clear)
+        set L(cam_flip_d)    152         ;# camera-flip circle
+        set L(cam_ring_d)    180         ;# shutter ring outer diameter
+        set L(cam_shutter_d) 132         ;# shutter button (white disc)
+        set L(cam_row_cy)    1400        ;# bottom control row centre line
+        set L(cam_pill_w)    1000        ;# status pill width, centred
+        set L(cam_pill_h)    72          ;# status pill height (slim, per mock)
+        set L(cam_send_w)    360
+        set L(cam_badge_d)   88          ;# count badge inside the Send pill
+
         set L(header_title_y) [expr {int(round(28 * $scale))}]
         set L(header_subtitle_y) [expr {int(round(72 * $scale))}]
         set L(toolbar_y0) [expr {int(round(104 * $scale))}]
@@ -442,8 +482,17 @@ namespace eval ::plugins::BeanScanner {
                 }
                 set L(font_icon) BSC_icon
                 set L(have_icons) 1
+                # Smaller icon size for inline accents (the Send plane).
+                set px [expr {int(max(14, round(20 * $font_scale)))}]
+                if {[lsearch -exact [font names] BSC_icon_sm] >= 0} {
+                    font configure BSC_icon_sm -family $fam -size [expr {-$px}]
+                } else {
+                    font create BSC_icon_sm -family $fam -size [expr {-$px}]
+                }
+                set L(font_icon_sm) BSC_icon_sm
             }
         }
+        if {![info exists L(font_icon_sm)]} { set L(font_icon_sm) $L(font_caption) }
 
         # One shared button style. Label fonts are passed per instance via
         # -label_font; the aspect font_size key is not honored on the tablet.
@@ -709,6 +758,21 @@ namespace eval ::plugins::BeanScanner {
         return $cam(photo)
     }
 
+    # The photo shown on the canvas: the raw preview photo, or -- when
+    # the preview is display-zoomed -- a second photo that _preview_tick
+    # fills with an integer-zoomed copy of each frame.
+    proc _display_photo {} {
+        variable cam
+        if {$cam(zoom) eq "1 1"} { return [_ensure_photo] }
+        if {$cam(photo_disp) ne "" && [lsearch -exact [image names] $cam(photo_disp)] >= 0} {
+            return $cam(photo_disp)
+        }
+        set cam(photo_disp) ""
+        catch { set cam(photo_disp) [image create photo BeanScanner_preview_disp] }
+        if {$cam(photo_disp) eq ""} { return [_ensure_photo] }
+        return $cam(photo_disp)
+    }
+
     proc camera_open {} {
         variable cam
         if {$cam(open)} { return 1 }
@@ -725,33 +789,379 @@ namespace eval ::plugins::BeanScanner {
         set cam(open) 1
         set cam(index) $idx
 
-        # Preview and capture resolution. Device-specific: failures here are
-        # logged, not fatal -- the camera keeps its own defaults.
-        set psize [_setting preview_size 640x480]
-        set csize [_setting capture_size 1280x960]
+        # One read of the camera's Camera.Parameters ("borg camera
+        # parameters" with no arguments returns them as a key-value list)
+        # feeds both the flash detection and the preview-size choice.
+        array set __cp {}
+        catch { array set __cp [borg camera parameters] }
+
+        # Hardware flash detection, per camera: flash-capable cameras
+        # report flash-mode-values (comma separated, e.g.
+        # "off,auto,on,torch"). Front cameras normally have none -- there
+        # the flash setting means screen flash instead.
+        set cam(flash_hw) ""
+        set cam(flash_modes) {}
+        if {[info exists __cp(flash-mode-values)]} {
+            set cam(flash_modes) [split $__cp(flash-mode-values) ","]
+        }
+        foreach __m {torch on} {
+            if {[lsearch -exact $cam(flash_modes) $__m] >= 0} {
+                set cam(flash_hw) $__m
+                break
+            }
+        }
+        catch { msg "BeanScanner: camera $idx flash modes {$cam(flash_modes)} using [expr {$cam(flash_hw) eq {} ? {screen flash} : $cam(flash_hw)}]" }
+
+        # Preview and capture resolution, set BEFORE the preview starts.
+        # v0.8.0: the preview fills the screen, so pick the largest size
+        # the camera offers that fits the physical display. Camera1's
+        # flattened key for the supported list is preview-size-values
+        # (v0.8.1 fix -- v0.8.0 read "preview-sizes", which does not
+        # exist, so the preview silently stayed at the 640x480 fallback).
+        # Device-specific failures are logged, not fatal -- the camera
+        # keeps its own defaults.
+        set __psizes ""
+        foreach __k {preview-size-values preview-sizes} {
+            if {[info exists __cp($__k)]} {
+                set __psizes $__cp($__k)
+                break
+            }
+        }
+        set psize [_pick_preview_size $__psizes]
+        catch { msg "BeanScanner: camera $idx preview sizes {$__psizes} -> $psize" }
+        set __csizes ""
+        foreach __k {picture-size-values picture-sizes} {
+            if {[info exists __cp($__k)]} {
+                set __csizes $__cp($__k)
+                break
+            }
+        }
+        set csize [_pick_picture_size $__csizes]
+        catch { msg "BeanScanner: camera $idx capture sizes {$__csizes} -> $csize (wanted [_setting capture_size 1600x1200])" }
         if {[catch { borg camera parameters preview-size $psize } err]} {
             catch { msg "BeanScanner: preview-size $psize rejected: $err" }
         }
         if {[catch { borg camera parameters picture-size $csize } err]} {
             catch { msg "BeanScanner: picture-size $csize rejected: $err" }
         }
+        # v0.9.11: NO 3A parameter writes at all. Ten rounds of the
+        # back-camera freeze saga (fps pin, focus modes, scene, anti-
+        # banding, stabilization, AF boxes -- each dump-verified applied,
+        # none curative, some suspect) taught the workspace lesson the
+        # hard way: converge on the proven mechanism. The proven state
+        # is v0.9.0's -- the camera's factory automatics untouched; the
+        # plugin sets only what the user actually controls (sizes,
+        # flash) below.
+
+        # What the camera ACTUALLY accepted is authoritative -- a
+        # rejected size silently keeps the camera's own default, and the
+        # display maths below must work from the real frame size.
+        catch {
+            array set __cp2 [borg camera parameters]
+            if {[info exists __cp2(preview-size)]} { set psize $__cp2(preview-size) }
+        }
+        catch { msg "BeanScanner: camera $idx actual preview-size $psize" }
+
+        # Display scale, v0.8.3: 1:1 whenever the preview covers or
+        # nearly fills the screen (a covering preview is centre-cropped
+        # by the screen edges -- sharp and borderless). Integer x2 zoom
+        # ONLY for genuinely small previews (no covering size reported):
+        # zoom replicates every source pixel, so nothing is thrown away.
+        # Fractional zoom/subsample is banned -- subsample discards
+        # pixels first, which is what pixelated v0.8.2.
+        variable L
+        set cam(zoom) {1 1}
+        if {[regexp {^(\d+)x(\d+)$} $psize -> __pw __ph]} {
+            set __sw 1340
+            if {[info exists L(phys_w)]} { set __sw $L(phys_w) }
+            if {$__pw * 4 <= $__sw * 3} { set cam(zoom) {2 1} }
+        }
+        catch { msg "BeanScanner: display scale [join $cam(zoom) /] for $psize" }
+
         if {[catch { borg camera start } err]} {
             set_error "Camera start failed: $err"
             camera_close
             return 0
         }
         set cam(started) 1
+        _flash_apply
         return 1
     }
+
+    # Preview size choice, v0.8.3: Tk photos can only scale by integer
+    # factors (fractional zoom/subsample DESTROYS resolution -- it drops
+    # pixels before replicating them, which is what pixelated v0.8.2).
+    # So the preview is shown at 1:1 and full-bleed comes from the
+    # camera itself: prefer the SMALLEST reported size that covers the
+    # screen (shown centre-cropped, sharp, borderless), else the largest
+    # that fits, else the setting.
+    proc _pick_preview_size {sizes_csv} {
+        variable L
+        set fallback [_setting preview_size 640x480]
+        set sw 1340
+        set sh 800
+        if {[info exists L(phys_w)]} { set sw $L(phys_w) }
+        if {[info exists L(phys_h)]} { set sh $L(phys_h) }
+        set best_cover ""
+        set best_cover_area -1
+        set best_cover_aligned 0
+        set best_fit $fallback
+        set best_fit_area 0
+        foreach s [split $sizes_csv ","] {
+            set s [string trim $s]
+            if {![regexp {^(\d+)x(\d+)$} $s -> w h]} { continue }
+            set area [expr {$w * $h}]
+            # v0.9.5: prefer hardware-aligned modes (both dimensions
+            # divisible by 8). The Tab A9 back camera's screen-exact
+            # 1340x800 mode (1340 is not) hiccuped ~1x/second on-device
+            # while the front's aligned 1600x960 ran smoothly -- exotic
+            # sizes go through slower HAL scaler paths.
+            set aligned [expr {($w % 8) == 0 && ($h % 8) == 0}]
+            if {$w >= $sw && $h >= $sh} {
+                if {($aligned && !$best_cover_aligned) \
+                        || ($aligned == $best_cover_aligned \
+                            && ($best_cover_area < 0 || $area < $best_cover_area))} {
+                    set best_cover $s
+                    set best_cover_area $area
+                    set best_cover_aligned $aligned
+                }
+            } elseif {$w <= $sw && $h <= $sh && $area > $best_fit_area} {
+                set best_fit $s
+                set best_fit_area $area
+            }
+        }
+        if {$best_cover ne ""} { return $best_cover }
+        return $best_fit
+    }
+
+    # Capture (JPEG) size: the smallest reported picture size that is at
+    # least the requested capture_size, so "high res" in Settings really
+    # captures at that detail; when the camera cannot reach it, its
+    # largest size is used. Absent list -> the setting as-is.
+    proc _pick_picture_size {sizes_csv} {
+        set want [_setting capture_size 1600x1200]
+        if {![regexp {^(\d+)x(\d+)$} $want -> ww wh]} { return $want }
+        set want_area [expr {$ww * $wh}]
+        set best ""
+        set best_area -1
+        set biggest ""
+        set biggest_area 0
+        foreach s [split $sizes_csv ","] {
+            set s [string trim $s]
+            if {![regexp {^(\d+)x(\d+)$} $s -> w h]} { continue }
+            set area [expr {$w * $h}]
+            if {$area > $biggest_area} {
+                set biggest $s
+                set biggest_area $area
+            }
+            if {$area >= $want_area && ($best_area < 0 || $area < $best_area)} {
+                set best $s
+                set best_area $area
+            }
+        }
+        if {$best ne ""} { return $best }
+        if {$biggest ne ""} { return $biggest }
+        return $want
+    }
+
+    proc _is_front_camera {} {
+        return [expr {[_setting camera_pref front] eq "front"}]
+    }
+
+    # (v0.9.1's _pick_fps_range pin lived here; removed in v0.9.9 -- the
+    # fixed floor correlated with the light-in-frame stall on both
+    # cameras, and the HAL's own variable range handles dim scenes.)
+
+    # (The freeze-saga camera_debug.txt dump and on-screen frame stats
+    # lived here through v0.9.6-v0.9.11; removed once the diagnosis
+    # closed. Verdict: the preview stalls when a bright PWM light
+    # source dominates the frame, on BOTH cameras, on a completely
+    # clean camera configuration -- a device/HAL behavior below what
+    # Camera1 parameters or AndroWish can reach. It does not occur in
+    # normal scanning conditions, and captures are unaffected.)
 
     proc camera_close {} {
         variable cam
         preview_stop
+        if {$cam(flash_after) ne ""} {
+            catch { after cancel $cam(flash_after) }
+            set cam(flash_after) ""
+        }
+        _screen_flash_end
+        if {$cam(started)} { _flash_hw_set off }
         if {$cam(started)} { catch { borg camera stop } }
         if {$cam(open)}    { catch { borg camera close } }
         set cam(started) 0
         set cam(open) 0
         set cam(index) -1
+        # flash_hw / flash_modes are deliberately kept: they describe the
+        # last-opened camera for the Diagnostics page, and every user of
+        # them also checks cam(open)/cam(started).
+    }
+
+    # ==================================================================
+    #  Flash: hardware torch on cameras that have one, screen flash
+    #  (white overlay + full brightness) on those that do not.
+    # ==================================================================
+
+    # Low-level: set the Camera1 flash-mode on the running camera.
+    # Rejections are logged, never fatal.
+    proc _flash_hw_set {mode} {
+        variable cam
+        if {!$cam(open) || $cam(flash_hw) eq ""} { return }
+        if {[catch { borg camera parameters flash-mode $mode } err]} {
+            catch { msg "BeanScanner: flash-mode $mode rejected: $err" }
+        }
+    }
+
+    # Applies the flash_mode setting (off/on/auto) to the running camera.
+    # "on" uses torch when available -- it lights the preview too, so what
+    # you see is what gets captured; "auto" lets the camera decide at
+    # capture time. Cameras without hardware flash are handled at capture
+    # (screen flash, front camera only), so nothing to do here.
+    proc _flash_apply {} {
+        variable cam
+        if {$cam(flash_hw) eq ""} { return }
+        switch -- [_setting flash_mode off] {
+            on      { _flash_hw_set $cam(flash_hw) }
+            auto    { _flash_hw_set auto }
+            default { _flash_hw_set off }
+        }
+    }
+
+    # The states the flash button can cycle through on the current camera:
+    # front camera has no light meter for its screen flash, so no "auto";
+    # a back camera without hardware flash has no flash at all (the screen
+    # faces away from the subject there, so screen flash is pointless).
+    proc _flash_states {} {
+        variable cam
+        if {[_is_front_camera]} { return {off on} }
+        if {$cam(flash_hw) eq ""} { return {} }
+        if {[lsearch -exact $cam(flash_modes) auto] >= 0} { return {off on auto} }
+        return {off on}
+    }
+
+    proc flash_cycle {} {
+        variable settings
+        set states [_flash_states]
+        if {[llength $states] == 0} {
+            catch { borg toast [translate "This camera has no flash."] }
+            return
+        }
+        set i [lsearch -exact $states [_setting flash_mode off]]
+        set settings(flash_mode) [lindex $states [expr {($i + 1) % [llength $states]}]]
+        save_settings
+        _flash_apply
+        _update_capture_ui
+    }
+
+    # Glyph from the app's icon font, or a plain-text stand-in when the
+    # font is unavailable (then EVERY face is text, so the button's
+    # creation font always matches).
+    proc _glyph_or {name fallback} {
+        variable L
+        if {[info exists L(have_icons)] && $L(have_icons)} {
+            set g [_glyph_for $name]
+            if {$g ne ""} { return $g }
+        }
+        return [translate $fallback]
+    }
+
+    # Flash button face: {label colour}. White slashed bolt = off, yellow
+    # bolt = on, yellow bolt-A = auto, dimmed = this camera has no flash.
+    proc _flash_button_face {} {
+        variable L
+        if {[llength [_flash_states]] == 0} {
+            return [list [_glyph_or bolt-slash "no fl"] $L(cam_icon_dim)]
+        }
+        switch -- [_setting flash_mode off] {
+            on   { return [list [_glyph_or bolt "fl on"] $L(cam_flash_on)] }
+            auto { return [list [_glyph_or bolt-auto "fl A"] $L(cam_flash_on)] }
+        }
+        return [list [_glyph_or bolt-slash "fl off"] $L(cam_icon)]
+    }
+
+    # Flip front <-> back from the capture page. The pending photos are
+    # kept -- they show the same bag, whichever camera took them -- and
+    # camera_open re-detects the new camera's flash hardware, so an
+    # enabled flash switches between torch and screen flash by itself.
+    proc camera_flip {} {
+        variable settings
+        variable scan
+        if {$scan(busy)} {
+            set_stage sending [translate "Already working -- please wait."]
+            return
+        }
+        if {[_setting camera_pref front] eq "front"} {
+            set settings(camera_pref) back
+        } else {
+            set settings(camera_pref) front
+        }
+        save_settings
+        restart_camera
+    }
+
+    # (Re)start the camera for the capture page: used by the page's show{}
+    # and by camera_flip. camera_close first is safe when nothing is open,
+    # and cancels a pending screen-flash timer if a flip lands mid-flash.
+    proc restart_camera {} {
+        variable photos
+        variable cam
+        camera_close
+        # Fresh preview photos for every (re)start: reusing one Tk photo
+        # across cameras let a smaller new preview SHRINK it in place,
+        # and the canvas never repainted the vacated area -- the old
+        # camera's last frame stayed on screen as garbage (seen on the
+        # first on-device flip of v0.8.3). A brand-new photo only ever
+        # grows, and re-configuring the item repaints the old extent.
+        if {$cam(photo) ne ""} { catch { image delete $cam(photo) } }
+        if {$cam(photo_disp) ne ""} { catch { image delete $cam(photo_disp) } }
+        set cam(photo) ""
+        set cam(photo_disp) ""
+        set_stage idle [translate "Starting the camera..."]
+        set opened [camera_open]
+        # After open: flash hardware of THIS camera is known, so the
+        # flash face (yellow/white/dimmed) can be brought up to date.
+        _update_capture_ui
+        if {!$opened} { return }
+        set photo [_ensure_photo]
+        if {$photo ne ""} {
+            catch { dui item config BeanScanner_capture cam_preview -image [_display_photo] }
+        }
+        preview_start
+        set n [llength $photos]
+        if {$n > 0} {
+            set_stage preview "$n photo[expr {$n == 1 ? {} : {s}}] taken. Capture another side, or tap Send."
+        } else {
+            set_stage preview [translate "Ready. Tap Capture."]
+        }
+    }
+
+    # Screen flash: cover the whole page with a white rectangle and push
+    # the tablet brightness to maximum via the app's own brightness proc
+    # (which also re-hides the system bar). Balanced by _screen_flash_end
+    # on every exit path, including errors and page hides.
+    proc _screen_flash_begin {} {
+        variable cam
+        if {$cam(screenflash)} { return }
+        set cam(screenflash) 1
+        catch { dui item show BeanScanner_capture flash_overlay -initial 1 }
+        catch {
+            set b [get_set_tablet_brightness]
+            if {[string is integer -strict $b]} { set cam(saved_brightness) $b }
+            get_set_tablet_brightness 100
+        }
+    }
+
+    proc _screen_flash_end {} {
+        variable cam
+        if {!$cam(screenflash)} { return }
+        set cam(screenflash) 0
+        catch { dui item hide BeanScanner_capture flash_overlay -initial 1 }
+        if {$cam(saved_brightness) ne ""} {
+            catch { get_set_tablet_brightness $cam(saved_brightness) }
+        }
+        set cam(saved_brightness) ""
     }
 
     proc preview_start {} {
@@ -771,18 +1181,29 @@ namespace eval ::plugins::BeanScanner {
         }
     }
 
+    # Plain fixed-rate poll (v0.9.13, reverted to the v0.8.x mechanism
+    # the owner preferred): one grab per preview_poll_ms. The v0.9.x
+    # frame-driven <<ImageCapture>> path chased the camera's full rate
+    # and, at 30-50 ms of main-thread cost per grab on this tablet,
+    # made the UI laggy; ~7 fps with a responsive UI feels better.
     proc _preview_tick {} {
         variable cam
         if {!$cam(preview)} { return }
         catch { borg camera image $cam(photo) }
+        if {$cam(zoom) ne "1 1" && $cam(photo_disp) ne ""} {
+            lassign $cam(zoom) __z __s
+            catch { $cam(photo_disp) copy $cam(photo) -zoom $__z $__z -subsample $__s $__s }
+        }
         set cam(after) [after [_setting_int preview_poll_ms 150] ::plugins::BeanScanner::_preview_tick]
     }
 
-    # Asks the camera for a full-resolution JPEG and polls until the bytes
-    # are available. Calls back with the byte array, or reports the error.
+    # Takes one photo and adds it to the pending set. The camera stays
+    # open between shots so several sides of the same bag can be captured;
+    # nothing is sent until send_photos.
     proc capture_jpeg {} {
         variable cam
         variable scan
+        variable photos
         if {$scan(busy)} {
             set_stage sending [translate "Already working -- please wait."]
             return
@@ -791,9 +1212,41 @@ namespace eval ::plugins::BeanScanner {
             set_error "Camera is not running."
             return
         }
+        set maxp [_setting_int max_photos 6]
+        if {[llength $photos] >= $maxp} {
+            set_stage preview "All $maxp photo slots are used. Tap Send, or Clear to start over."
+            return
+        }
         preview_stop
-        set_stage capturing "Taking the picture..."
+        set_stage capturing "Taking picture [expr {[llength $photos] + 1}]..."
+        set delay 0
+        if {[_setting flash_mode off] ne "off" && $cam(flash_hw) eq "" \
+                && [_is_front_camera]} {
+            # Screen flash: FRONT camera only -- the screen faces away
+            # from the subject on the back camera, so it never fires
+            # there. Light the scene with the screen and give the
+            # auto-exposure a moment to adapt.
+            _screen_flash_begin
+            set delay [_setting_int screen_flash_ms 600]
+        }
+        if {$delay > 0} {
+            # The timer is remembered so a page hide mid-wait cancels it.
+            set cam(flash_after) [after $delay ::plugins::BeanScanner::_do_takejpeg]
+        } else {
+            _do_takejpeg
+        }
+    }
+
+    proc _do_takejpeg {} {
+        variable cam
+        set cam(flash_after) ""
+        if {!$cam(started)} {
+            # The page was hidden (e.g. a flush screen) while waiting.
+            _screen_flash_end
+            return
+        }
         if {[catch { borg camera takejpeg } err]} {
+            _screen_flash_end
             set_error "takejpeg failed: $err"
             return
         }
@@ -802,27 +1255,89 @@ namespace eval ::plugins::BeanScanner {
 
     proc _poll_jpeg {tries} {
         variable cam
+        variable photos
         set max [_setting_int capture_retries 24]
         set data ""
         catch { set data [borg camera jpeg] }
         set len [string length $data]
         if {$len > 2000} {
+            _screen_flash_end
             set cam(last_bytes) $len
             set limit [_setting_int max_image_bytes 4000000]
             if {$len > $limit} {
-                set_error "Captured image is [_fmt_bytes $len], over the [_fmt_bytes $limit] limit. Lower the capture size in Settings."
+                set_error "That photo is [_fmt_bytes $len], over the [_fmt_bytes $limit] limit -- not added. Lower the capture size in Settings."
+                _resume_preview
                 return
             }
-            camera_close
-            send_image $data
+            lappend photos $data
+            _resume_preview
+            _update_capture_ui
+            set n [llength $photos]
+            set_stage preview "$n photo[expr {$n == 1 ? {} : {s}}] taken. Capture another side, or tap Send."
             return
         }
         if {$tries >= $max} {
+            _screen_flash_end
             set_error "No JPEG returned after [expr {$max * [_setting_int capture_poll_ms 250]}] ms."
             return
         }
         after [_setting_int capture_poll_ms 250] \
             [list ::plugins::BeanScanner::_poll_jpeg [expr {$tries + 1}]]
+    }
+
+    # Camera1 halts the preview after a still capture; restarting is
+    # harmless when it did not. Errors are logged, never fatal.
+    proc _resume_preview {} {
+        variable cam
+        if {!$cam(open)} { return }
+        if {[catch { borg camera start } err]} {
+            catch { msg "BeanScanner: preview restart failed: $err" }
+        }
+        set cam(started) 1
+        preview_start
+    }
+
+    # Send badge / flash button faces on the capture page. The photo
+    # count lives in the dark badge inside the Send pill (mock design),
+    # shown only while at least one photo is pending.
+    proc _update_capture_ui {} {
+        variable photos
+        set n [llength $photos]
+        if {$n > 0} {
+            catch { dui item config BeanScanner_capture send_badge_n -text $n }
+            catch { dui item show BeanScanner_capture send_badge -initial 1 }
+            catch { dui item show BeanScanner_capture send_badge_n -initial 1 }
+        } else {
+            catch { dui item hide BeanScanner_capture send_badge -initial 1 }
+            catch { dui item hide BeanScanner_capture send_badge_n -initial 1 }
+        }
+        lassign [_flash_button_face] fl_label fl_fill
+        catch { dui item config BeanScanner_capture flash_btn -label $fl_label }
+        catch { dui item config BeanScanner_capture flash_btn-lbl -fill $fl_fill }
+    }
+
+    proc clear_photos {} {
+        variable photos
+        set photos [list]
+        _update_capture_ui
+    }
+
+    # Sends every pending photo as ONE vision request.
+    proc send_photos {} {
+        variable photos
+        variable scan
+        if {$scan(busy)} {
+            set_stage sending [translate "Already working -- please wait."]
+            return
+        }
+        if {[llength $photos] == 0} {
+            set_error "No photos yet -- tap Capture first."
+            return
+        }
+        # The pending set is kept until the response parses, so a network
+        # error never costs the photos -- Send can simply be tapped again.
+        camera_close
+        send_images $photos
     }
 
     # Fallback path: take the photo with the tablet's own camera app, then
@@ -920,7 +1435,8 @@ namespace eval ::plugins::BeanScanner {
 
     proc _prompt_text {} {
         return [join {
-            "You are reading a photograph of a bag of roasted coffee beans."
+            "You are reading one or more photographs of the SAME bag of roasted coffee beans, taken from different sides of the bag."
+            "Combine the information printed across all of the photographs into one answer."
             "Extract only what is actually printed on the bag."
             "Reply with a single JSON object and nothing else - no prose, no markdown, no code fences."
             "Use exactly these keys: roaster, bean, roast_date, roast_level, origin, process, varietal, notes."
@@ -938,30 +1454,40 @@ namespace eval ::plugins::BeanScanner {
     # ==================================================================
 
     proc send_image {jpeg_bytes} {
+        send_images [list $jpeg_bytes]
+    }
+
+    proc send_images {jpeg_list} {
         variable scan
         set key [api_key]
         if {$key eq ""} {
             set_error "No API key. Add one in Settings > API Key, or put it in api_key_[_setting provider anthropic].txt inside the plugin folder."
             return
         }
-        if {[catch { set b64 [_b64 $jpeg_bytes] } err]} {
-            set_error $err
-            return
+        set b64s [list]
+        set total 0
+        foreach jpeg_bytes $jpeg_list {
+            incr total [string length $jpeg_bytes]
+            if {[catch { lappend b64s [_b64 $jpeg_bytes] } err]} {
+                set_error $err
+                return
+            }
         }
         set provider [_setting provider anthropic]
         set model [model_id]
-        set_stage sending "Sending [_fmt_bytes [string length $jpeg_bytes]] to $model..."
+        set n [llength $b64s]
+        set_stage sending "Sending $n photo[expr {$n == 1 ? {} : {s}}] ([_fmt_bytes $total]) to $model..."
 
         if {$provider eq "openai"} {
             set host "api.openai.com"
             set url  "https://api.openai.com/v1/chat/completions"
             set headers [list Authorization "Bearer $key"]
-            set body [_openai_body $model $b64]
+            set body [_openai_body $model $b64s]
         } else {
             set host "api.anthropic.com"
             set url  "https://api.anthropic.com/v1/messages"
             set headers [list x-api-key $key anthropic-version "2023-06-01"]
-            set body [_anthropic_body $model $b64]
+            set body [_anthropic_body $model $b64s]
         }
 
         if {[catch { _post_json $host $url $headers $body } err]} {
@@ -969,19 +1495,28 @@ namespace eval ::plugins::BeanScanner {
         }
     }
 
-    proc _anthropic_body {model b64} {
+    proc _anthropic_body {model b64list} {
         set prompt [_jstr [_prompt_text]]
         set mt [_setting_int max_tokens 1500]
-        return "{\"model\":[_jstr $model],\"max_tokens\":$mt,\"messages\":\[{\"role\":\"user\",\"content\":\[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/jpeg\",\"data\":\"$b64\"}},{\"type\":\"text\",\"text\":$prompt}\]}\]}"
+        set imgs ""
+        foreach b64 $b64list {
+            if {$imgs ne ""} { append imgs "," }
+            append imgs "{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/jpeg\",\"data\":\"$b64\"}}"
+        }
+        return "{\"model\":[_jstr $model],\"max_tokens\":$mt,\"messages\":\[{\"role\":\"user\",\"content\":\[$imgs,{\"type\":\"text\",\"text\":$prompt}\]}\]}"
     }
 
     # No output-token cap is sent to OpenAI on purpose: the parameter name
     # differs across their model generations (max_tokens vs
     # max_completion_tokens) and the expected reply is a short JSON object
     # well under any default.
-    proc _openai_body {model b64} {
+    proc _openai_body {model b64list} {
         set prompt [_jstr [_prompt_text]]
-        return "{\"model\":[_jstr $model],\"messages\":\[{\"role\":\"user\",\"content\":\[{\"type\":\"text\",\"text\":$prompt},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/jpeg;base64,$b64\"}}\]}\]}"
+        set imgs ""
+        foreach b64 $b64list {
+            append imgs ",{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/jpeg;base64,$b64\"}}"
+        }
+        return "{\"model\":[_jstr $model],\"messages\":\[{\"role\":\"user\",\"content\":\[{\"type\":\"text\",\"text\":$prompt}$imgs\]}\]}"
     }
 
     # Asynchronous POST: -command keeps the Tk event loop alive so the tablet
@@ -1060,6 +1595,9 @@ namespace eval ::plugins::BeanScanner {
             return
         }
         _store_fields $fields
+        # The scan succeeded, so the pending photos have served their
+        # purpose (they are kept across send errors so Send can be retried).
+        clear_photos
         set_stage done "Bag read."
         open_page BeanScanner_review
     }
@@ -1424,7 +1962,7 @@ namespace eval ::dui::pages::BeanScanner_settings {
         catch { dui item config $page camera_value -text \
             [string totitle [::plugins::BeanScanner::_setting camera_pref front]] }
         catch { dui item config $page capsize_value -text \
-            [::plugins::BeanScanner::_setting capture_size 1280x960] }
+            [::plugins::BeanScanner::_setting capture_size 1600x1200] }
         catch { dui item config $page notes_value -text [_onoff apply_bean_notes] }
         catch { dui item config $page overwrite_value -text [_onoff overwrite_existing] }
         # v0.5.0: theme button face follows the effective theme.
@@ -1473,7 +2011,7 @@ namespace eval ::dui::pages::BeanScanner_settings {
 
     proc cycle_capture_size {} {
         set values {640x480 1024x768 1280x960 1600x1200 2048x1536}
-        set cur [::plugins::BeanScanner::_setting capture_size 1280x960]
+        set cur [::plugins::BeanScanner::_setting capture_size 1600x1200]
         set idx [lsearch -exact $values $cur]
         if {$idx < 0} { set idx 2 }
         set ::plugins::BeanScanner::settings(capture_size) \
@@ -1563,67 +2101,169 @@ namespace eval ::dui::pages::BeanScanner_apikey {
 
 namespace eval ::dui::pages::BeanScanner_capture {
 
+    # v0.8.0: camera-app layout. Full-bleed preview on black, floating
+    # circular controls (Tk has no alpha, so they are solid dark), the
+    # shutter is a white disc in a ring, flash and flip are icon circles.
+    # This page is deliberately theme-independent -- camera screens are
+    # dark everywhere -- so it is excluded from _retheme_all.
     proc setup {} {
         set page [namespace tail [namespace current]]
         upvar #0 ::plugins::BeanScanner::L L
-        ::plugins::BeanScanner::_page_bg $page
-        set lx $L(left_x)
-        set rx $L(right_x)
+        set sw $L(screen_w)
+        set sh $L(screen_h)
         set cx $L(center_x)
+        set m  $L(cam_margin)
+        set d  $L(cam_circle_d)
+        set cy $L(cam_row_cy)
+        set ifont [expr {$L(have_icons) ? $L(font_icon) : $L(font_button)}]
+        set G ::plugins::BeanScanner::_glyph_or
 
-        dui add dtext $page $cx $L(header_title_y) -tags page_title \
-            -text [translate "Scan Bean Bag"] -font $L(font_title) \
-            -width $L(content_w) -fill $L(fg_title) -anchor center -justify center
-        dui add dtext $page $cx $L(header_subtitle_y) -tags subtitle \
-            -text [translate "Hold the front of the bag up to the camera, fill the frame, then tap Capture."] \
-            -font $L(font_caption) -width $L(content_w) -fill $L(fg_muted) \
-            -anchor center -justify center
-
-        # Status sits ABOVE the preview. It used to sit just above the bottom
-        # bar, where it collided with the bottom edge of the preview image --
-        # the photo's height is in physical pixels and is not known at layout
-        # time, so nothing below it can be placed safely.
-        dui add dtext $page $cx $L(toolbar_y0) -tags scan_status \
-            -text "" -font $L(font_body) -width $L(content_w) -fill $L(fg_body) \
-            -anchor center -justify center
+        # Fixed black backdrop (NOT _page_bg: that one follows the theme).
+        dui add canvas_item rect $page 0 0 $sw $sh \
+            -fill $L(cam_bg) -outline $L(cam_bg) -tags page_bg
 
         # The preview is a Tk photo image: it renders at its own PHYSICAL
-        # pixel size, so it is anchored at the centre of the remaining
-        # content area rather than sized in virtual units.
-        set preview_cy [expr {($L(list_top) + $L(bar_y0)) / 2}]
-        dui add canvas_item image $page $cx $preview_cy \
+        # pixel size (camera_open asks for the largest preview that fits
+        # the screen), anchored at the centre of the whole page.
+        dui add canvas_item image $page $cx [expr {$sh / 2}] \
             -tags cam_preview -anchor center
 
-        dui add dbutton $page $lx $L(bar_y0) [expr {$lx + $L(btn_w_wide)}] $L(bar_y1) \
-            -tags capture_btn -label [translate "Capture"] \
-            -command ::plugins::BeanScanner::capture_jpeg \
-            -label_font $L(font_button) -style bsc_btn
-        dui add dbutton $page [expr {$rx - $L(btn_w_std)}] $L(bar_y0) $rx $L(bar_y1) \
-            -tags page_done -label [translate "Cancel"] \
-            -command ::dui::pages::BeanScanner_capture::page_done \
-            -label_font $L(font_button) -style bsc_btn
+        # --- top row: Cancel (x), status pill, flash ---
+        dui add dbutton $page $m $m [expr {$m + $d}] [expr {$m + $d}] \
+            -tags page_done -shape oval -fill $L(cam_circle) \
+            -label [$G xmark "X"] -label_font $ifont -label_fill $L(cam_icon) \
+            -command ::dui::pages::BeanScanner_capture::page_done
+        # Slim status pill (per the mock), centred on the top row's axis.
+        # A TRUE capsule, composed of two end ovals and a middle rect --
+        # both the smooth-polygon helper and dui's round shape render
+        # visibly squarer corners than their radius argument promises.
+        set px0 [expr {$cx - $L(cam_pill_w) / 2}]
+        set px1 [expr {$cx + $L(cam_pill_w) / 2}]
+        set pcy [expr {$m + $d / 2}]
+        set ph  $L(cam_pill_h)
+        set py0 [expr {$pcy - $ph / 2}]
+        set py1 [expr {$pcy + $ph / 2}]
+        dui add canvas_item oval $page $px0 $py0 [expr {$px0 + $ph}] $py1 \
+            -fill $L(cam_circle) -outline $L(cam_circle) -tags status_pill_l
+        dui add canvas_item oval $page [expr {$px1 - $ph}] $py0 $px1 $py1 \
+            -fill $L(cam_circle) -outline $L(cam_circle) -tags status_pill_r
+        dui add canvas_item rect $page [expr {$px0 + $ph / 2}] $py0 \
+            [expr {$px1 - $ph / 2}] $py1 \
+            -fill $L(cam_circle) -outline $L(cam_circle) -tags status_pill_c
+        dui add dtext $page $cx $pcy -tags scan_status \
+            -text "" -font $L(font_caption) -width [expr {$L(cam_pill_w) - $L(lg)}] \
+            -fill $L(cam_icon) -anchor center -justify center
+        dui add dbutton $page [expr {$sw - $m - $d}] $m [expr {$sw - $m}] [expr {$m + $d}] \
+            -tags flash_btn -shape oval -fill $L(cam_circle) \
+            -label [$G bolt-slash "fl off"] -label_font $ifont -label_fill $L(cam_icon) \
+            -command ::plugins::BeanScanner::flash_cycle
+
+        # --- bottom row: Send pill, Clear, shutter, flip ---
+        set sy0 [expr {$cy - $L(btn_h) / 2}]
+        set sy1 [expr {$cy + $L(btn_h) / 2}]
+        set snd_x0 [expr {$m + 94}]
+        set snd_x1 [expr {$snd_x0 + $L(cam_send_w)}]
+        # -radius equals the FULL button height on purpose: dui's round
+        # shape draws corner circles whose DIAMETER is the radius value,
+        # so height-sized "radius" (clamped to the height internally) is
+        # what actually renders as a capsule.
+        dui add dbutton $page $snd_x0 $sy0 $snd_x1 $sy1 \
+            -tags send_btn -shape round -radius $L(btn_h) \
+            -fill $L(cam_send_fill) \
+            -label [translate "Send"] -label_font $L(font_button) \
+            -label_fill $L(cam_send_text) \
+            -command ::plugins::BeanScanner::send_photos
+        # Inside the pill, per the mock: a dark count badge on the left
+        # (hidden until a photo exists) and a paper plane on the right.
+        # They sit ON TOP of the button, so their taps are forwarded to
+        # send_photos with a raw canvas tag binding below.
+        set bd $L(cam_badge_d)
+        set bx0 [expr {$snd_x0 + 24}]
+        dui add canvas_item oval $page $bx0 [expr {$cy - $bd / 2}] \
+            [expr {$bx0 + $bd}] [expr {$cy + $bd / 2}] \
+            -fill $L(cam_send_text) -outline $L(cam_send_text) \
+            -tags send_badge -initial_state hidden
+        dui add dtext $page [expr {$bx0 + $bd / 2}] $cy -tags send_badge_n \
+            -text "0" -font $L(font_button) -fill $L(cam_send_fill) \
+            -anchor center -justify center -initial_state hidden
+        # Plane: smaller than the other icons, centred between the end of
+        # the "Send" label and the pill's right wall.
+        dui add dtext $page [expr {$snd_x1 - 66}] $cy -tags send_plane \
+            -text [$G paper-plane ">"] \
+            -font [expr {$L(have_icons) ? $L(font_icon_sm) : $L(font_button)}] \
+            -fill $L(cam_send_text) \
+            -anchor center -justify center
+        catch {
+            set can [dui canvas]
+            foreach t {send_badge send_badge_n send_plane} {
+                $can bind $t <ButtonRelease-1> ::plugins::BeanScanner::send_photos
+            }
+        }
+        set clr_x0 [expr {$snd_x1 + $L(md)}]
+        dui add dbutton $page $clr_x0 [expr {$cy - $d / 2}] \
+            [expr {$clr_x0 + $d}] [expr {$cy + $d / 2}] \
+            -tags clear_btn -shape oval -fill $L(cam_circle) \
+            -label [$G trash-can "Clr"] -label_font $ifont -label_fill $L(cam_icon) \
+            -command ::dui::pages::BeanScanner_capture::clear_pressed
+
+        set rr [expr {$L(cam_ring_d) / 2}]
+        dui add canvas_item oval $page [expr {$cx - $rr}] [expr {$cy - $rr}] \
+            [expr {$cx + $rr}] [expr {$cy + $rr}] \
+            -outline "#ffffff" -width 5 -fill {} -tags shutter_ring
+        set sr [expr {$L(cam_shutter_d) / 2}]
+        # The shutter is label-free by design; the single space keeps a
+        # real label sub-item in existence (empty-label dbuttons can
+        # never be relabelled later -- the sub-item is simply not built).
+        dui add dbutton $page [expr {$cx - $sr}] [expr {$cy - $sr}] \
+            [expr {$cx + $sr}] [expr {$cy + $sr}] \
+            -tags capture_btn -shape oval -fill "#ffffff" \
+            -label " " -label_font $L(font_button) \
+            -command ::plugins::BeanScanner::capture_jpeg
+
+        # Flip: the plain two-arrow loop (per the mock -- arrows-rotate,
+        # not the camera-with-arrows glyph).
+        set fr [expr {$L(cam_flip_d) / 2}]
+        set flip_cx [expr {$cx + 786}]
+        dui add dbutton $page [expr {$flip_cx - $fr}] [expr {$cy - $fr}] \
+            [expr {$flip_cx + $fr}] [expr {$cy + $fr}] \
+            -tags cam_btn -shape oval -fill $L(cam_circle) \
+            -label [$G arrows-rotate "Flip"] -label_font $ifont \
+            -label_fill $L(cam_icon) \
+            -command ::plugins::BeanScanner::camera_flip
+
+        # Screen-flash overlay: created LAST so it covers everything,
+        # starts hidden (st:hidden via -initial_state, so page loads never
+        # flash it), and is pure white -- it is a light source, not a
+        # surface, so _retheme_all must not touch it.
+        dui add canvas_item rect $page 0 0 $sw $sh \
+            -fill "#ffffff" -outline "#ffffff" -tags flash_overlay \
+            -initial_state hidden
     }
 
     proc show {page_to_hide page_to_show} {
-        ::plugins::BeanScanner::set_stage idle [translate "Starting the camera..."]
-        if {[::plugins::BeanScanner::camera_open]} {
-            set photo [::plugins::BeanScanner::_ensure_photo]
-            if {$photo ne ""} {
-                catch { dui item config $page_to_show cam_preview -image $photo }
-            }
-            ::plugins::BeanScanner::preview_start
-            ::plugins::BeanScanner::set_stage preview [translate "Ready. Tap Capture."]
-        }
+        # A fresh visit is a fresh scan: pending photos from an interrupted
+        # or cancelled session must not leak into this one (mode/page
+        # switches reset input state).
+        ::plugins::BeanScanner::clear_photos
+        ::plugins::BeanScanner::restart_camera
     }
 
     # Always release the camera when this page goes away -- including when a
     # flush/rinse/steam screen takes over, which the framework routes here.
+    # camera_close also cancels a pending screen-flash timer and restores
+    # the brightness if a screen flash was mid-way.
     proc hide {page_to_hide page_to_show} {
         ::plugins::BeanScanner::camera_close
     }
 
+    proc clear_pressed {} {
+        ::plugins::BeanScanner::clear_photos
+        ::plugins::BeanScanner::set_stage preview [translate "Photos cleared. Tap Capture."]
+    }
+
     proc page_done {} {
         ::plugins::BeanScanner::camera_close
+        ::plugins::BeanScanner::clear_photos
         ::plugins::BeanScanner::_exit_subpage
     }
 }
@@ -1784,7 +2424,14 @@ namespace eval ::dui::pages::BeanScanner_diagnostics {
         lappend lines "Provider: [::plugins::BeanScanner::_setting provider anthropic]   Model: [::plugins::BeanScanner::model_id]"
         lappend lines "API key: [::plugins::BeanScanner::api_key_source]"
         lappend lines "DYE loaded: [expr {[::plugins::BeanScanner::dye_available] ? {yes} : {NO - enable DYE in Extensions}}]"
-        lappend lines "Camera preference: [::plugins::BeanScanner::_setting camera_pref front]   Capture: [::plugins::BeanScanner::_setting capture_size 1280x960]"
+        lappend lines "Camera preference: [::plugins::BeanScanner::_setting camera_pref front]   Capture: [::plugins::BeanScanner::_setting capture_size 1600x1200]"
+        set fl [::plugins::BeanScanner::_setting flash_mode off]
+        if {$cam(flash_modes) ne ""} {
+            set fhw [expr {$cam(flash_hw) eq "" ? "none - screen flash" : $cam(flash_hw)}]
+            lappend lines "Flash: $fl   Hardware (last camera): $fhw (modes: [join $cam(flash_modes) {, }])"
+        } else {
+            lappend lines "Flash: $fl   Hardware: unknown until a camera is opened (front cameras use screen flash)"
+        }
         lappend lines "Import folder: [::plugins::BeanScanner::_setting import_dir /sdcard/DCIM/Camera]"
         lappend lines ""
         if {$cam(probe) eq ""} {
@@ -1822,7 +2469,11 @@ namespace eval ::dui::pages::BeanScanner_help {
         set body [join {
             "1. Put your API key in Settings > API key, or push a file named api_key_anthropic.txt (or api_key_openai.txt) into the BeanScanner plugin folder. A ChatGPT Plus or Claude Pro subscription does NOT include API access -- create a key with pay-as-you-go credit instead. One scan costs a fraction of a cent."
             ""
-            "2. Tap Scan Bean Bag. Hold the printed side of the bag up to the camera so it fills the frame, then tap Capture. Good light and a steady hand matter more than resolution."
+            "2. Tap Scan Bean Bag. The screen becomes a camera: the white circle at the bottom takes a picture. Photograph every side of the bag that has printing on it -- the roast date is often on the back -- then tap Send to have all the photos read together. The trash circle drops the photos and starts over; the X (top left) cancels. Good light and a steady hand matter more than resolution."
+            ""
+            "The lightning circle (top right) is the flash: slashed white = off, yellow = on, yellow with an A = auto (back camera only). On the back camera the real flash is used as a steady light; the front camera has no flash, so the whole screen turns white while the picture is taken -- the screen never flashes for the back camera. The two-arrow circle flips between the front and back camera without leaving the page; photos already taken are kept."
+            ""
+            "Known tablet quirk: pointing the camera straight at a bright LED or lamp in a dark room can make the live preview stutter. That is the tablet's camera itself, not the plugin, and it does not affect the captured photos -- scan bags in normal light and it never comes up."
             ""
             "3. Check what came back. Blank fields mean the model could not read them -- it is told never to guess. Tap Rescan for another photo, or Accept to send the details to DYE's next shot."
             ""

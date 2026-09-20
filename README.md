@@ -1,12 +1,34 @@
 # Bean Scanner
 
+**Photograph the coffee bag. Claude or GPT reads the label and fills DYE's next shot after you confirm.**
+Version 0.9.13 · a plugin for the Decent DE1app · by Blastize
+
+![The camera page: shutter circle, flash, flip camera, trash and Send](docs/camera.jpg)
+
+**Scan the bag.** The screen becomes a camera. Tap the shutter for every printed side of the bag (the roast date is often on the back), then Send. Flash, camera flip and a trash circle to start over.
+
+![The settings page: scan buttons, AI provider and model, camera and capture size](docs/settings-page.png)
+
+**Settings.** Scan, reuse the latest photo or reopen the last result. Choose Claude or GPT and the model, set your API key, pick the camera and capture size. Light and dark palette.
+
+## Install
+
+Copy the folder to `de1plus/plugins/BeanScanner/`, restart the app, enable **Bean Scanner** under Extensions. Needs the DYE plugin and your own API key (Anthropic or OpenAI, pay-as-you-go; one scan costs a fraction of a cent).
+
+## Safety
+
+Nothing is written until you press Accept, and then only DYE's next-shot description. The shot database and history files are never touched. Your API key stays on the tablet.
+
+<details>
+<summary><b>Full reference and version notes</b></summary>
+
+## Reference
+
 A plugin for the [Decent Espresso DE1app](https://github.com/decentespresso/de1app).
 Photograph a bag of coffee with the tablet camera, an AI vision model reads
 the label, and — after you confirm what it read — the roaster, bean, roast
 date, roast level and notes go into DYE's next shot. No more typing bag
 details on a tablet keyboard.
-
-![Bean Scanner settings page](docs/settings-page.png)
 
 *The settings page, adopting the active skin's palette.*
 
@@ -209,3 +231,5 @@ GPLv3 — see [LICENSE](LICENSE). Same license as the DE1app and DYE.
 
 This is an independent community plugin. It is not affiliated with, endorsed
 by, or supported by Decent Espresso, Anthropic, or OpenAI.
+
+</details>
